@@ -27,6 +27,8 @@ static struct libusb_device_handle *devh = NULL;
 uint16_t vendor_id = 0x1235;
 uint16_t product_id = 0x000a;
 
+int resubmit;
+
 /* Magical initiation strings.
  * From De Wet van Niekerk (dewert) - dvan.ca - dewert@gmail.com
  * (Github: dewert/nocturn-linux-midi)
@@ -98,6 +100,28 @@ int send_hexdata(libusb_device_handle *devh, uint8_t endpoint,
   return send_data(devh, endpoint, buf, p - buf, written);
 }
 
+void rx_cb(struct libusb_transfer *transfer)
+{
+  resubmit = 1;
+
+  /* We printout buffer either if rx'd >= 3 bytes, and not CC96..103, _or_
+   * if we get something other than a timeout event. */
+  if (transfer->status == LIBUSB_TRANSFER_COMPLETED &&
+      transfer->actual_length >= 3 &&
+      (transfer->buffer[1] < 96 || transfer->buffer[1] > 103) ||
+      transfer->status != LIBUSB_TRANSFER_TIMED_OUT &&
+      transfer->status != LIBUSB_TRANSFER_COMPLETED) {
+    printf("%s: timeout %d, status %d, len %d: ", __func__,
+           transfer->timeout, transfer->status, transfer->actual_length);
+
+    int i;
+    for (i = 0; i < transfer->actual_length; i++)
+      printf("%d ", transfer->buffer[i]);
+    printf("\n");
+  }
+}
+
+
 int main(int argc, char **argv)
 {
   int stat;
@@ -112,7 +136,7 @@ int main(int argc, char **argv)
   printf("Got USB device: %p\n", devh);
   if (!devh) {
     printf("Couldn't find Nocturn, exiting\n");
-    exit(1);
+    exit(2);
   }
 
   dev = libusb_get_device(devh);
@@ -140,7 +164,9 @@ int main(int argc, char **argv)
   printf("Interface 0: i/f no %d\n", config0->interface[0].altsetting[0].bInterfaceNumber);
   printf("Interface 0: i/f 0 endpoints %d\n", config0->interface[0].altsetting[0].bNumEndpoints);
   printf("Interface 0: i/f 0 ep 0 %d\n", config0->interface[0].altsetting[0].endpoint[0].bEndpointAddress);
+  printf("Interface 0: i/f 0 ep 0 poll interval %d\n", config0->interface[0].altsetting[0].endpoint[0].bInterval);
   printf("Interface 0: i/f 0 ep 1 %d\n", config0->interface[0].altsetting[0].endpoint[1].bEndpointAddress);
+  printf("Interface 0: i/f 0 ep 1 poll interval %d\n", config0->interface[0].altsetting[0].endpoint[1].bInterval);
 
   struct libusb_config_descriptor *config1;
   stat = libusb_get_config_descriptor(dev, 1, &config1);
@@ -152,8 +178,10 @@ int main(int argc, char **argv)
   printf("Interface 0: #altsettings %d\n", config1->interface[0].num_altsetting);
   printf("Interface 0: i/f no %d\n", config1->interface[0].altsetting[0].bInterfaceNumber);
   printf("Interface 0: i/f 1 endpoints %d\n", config1->interface[0].altsetting[0].bNumEndpoints);
-  printf("Interface 0: i/f 0 ep 0 %d\n", config1->interface[0].altsetting[0].endpoint[0].bEndpointAddress);
-  printf("Interface 0: i/f 0 ep 1 %d\n", config1->interface[0].altsetting[0].endpoint[1].bEndpointAddress);
+  printf("Interface 0: i/f 1 ep 0 %d\n", config1->interface[0].altsetting[0].endpoint[0].bEndpointAddress);
+  printf("Interface 0: i/f 1 ep 0 poll interval %d\n", config1->interface[0].altsetting[0].endpoint[0].bInterval);
+  printf("Interface 0: i/f 1 ep 1 %d\n", config1->interface[0].altsetting[0].endpoint[1].bEndpointAddress);
+  printf("Interface 0: i/f 1 ep 1 poll interval %d\n", config1->interface[0].altsetting[0].endpoint[1].bInterval);
 
   /* We know empirically that it is config1 that is the one we need
    * for communication, so extract the endpoint addresses from this one. */
@@ -241,6 +269,47 @@ int main(int argc, char **argv)
   }
 #endif
 
+  uint8_t buf[10] = { 0 };
+
+  /* Only on stack if we won't return before transfer completes. */
+  printf("Alloc transfer\n");
+  struct libusb_transfer *transfer = libusb_alloc_transfer(0);
+
+  printf("Fill transfer\n");
+  libusb_fill_interrupt_transfer(transfer,
+                                 devh,
+                                 rx_ep,
+                                 buf, 10,
+                                 rx_cb, NULL,
+                                 100);
+                           
+  printf("Submit transfer\n");      
+  stat = libusb_submit_transfer(transfer);
+  if (stat != 0) {
+    printf("submitting transfer: %d\n", stat);
+    exit(2);
+  }
+
+  resubmit = 0;
+  printf("Now for main loop\n");
+  while (1) {
+    libusb_handle_events(NULL);
+    if (resubmit) {
+      resubmit = 0;
+      /* printf("Resubmit transfer\n"); */
+      stat = libusb_submit_transfer(transfer);
+      if (stat != 0) {
+        printf("submitting transfer: %d\n", stat);
+        exit(2);
+      }
+    }
+  }
+
+
+  libusb_free_transfer(transfer);
+                                 
+
+#if 0
   int showall = 0;
   while (1) {
     uint8_t buf[10] = { 0 };
@@ -253,6 +322,7 @@ int main(int argc, char **argv)
     } else
       printf("Read stat %d\n", stat);
   }
+#endif
   
   /* Clean up */
   libusb_close(devh);
