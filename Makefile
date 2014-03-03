@@ -23,14 +23,14 @@ PREFIX = /usr/local
 DOC_DIR = $(PREFIX)/share/doc/$(PROGNAME)
 BIN_DIR = $(PREFIX)/bin
 UI_DIR = $(PREFIX)/share/$(PROGNAME)
-UDEV_DIR = /lib/udev/rules.d
+UDEV_DIR = /etc/udev/rules.d
 
 # For development, we keep everything in the same (development) directory
 UI_DIR=.
 
 OBJS = nocturn.o
 INCS = 
-UI_FILES = midiedit.glade blofeld.glade
+UI_FILES = 
 DOC_FILES = README COPYING
 UDEV_FILES = 40-nocturn.rules
 
@@ -46,11 +46,12 @@ $(PROGNAME): $(OBJS)
 clean:
 	rm -f $(PROGNAME) $(OBJS) *~
 
-install: $(PROGNAME) midiedit.glade blofeld.glade README COPYING
-	install -d $(BIN_DIR) $(UI_DIR) $(DOC_DIR)
-	install $(PROGNAME) $(BIN_DIR)
-	install $(UI_FILES) $(UI_DIR)
-	install $(DOC_FILES) $(DOC_DIR)
+install: $(PROGNAME)
+	#install -d $(BIN_DIR) $(UI_DIR) $(DOC_DIR)
+	#install $(PROGNAME) $(BIN_DIR)
+	#install $(UI_FILES) $(UI_DIR)
+	#install $(DOC_FILES) $(DOC_DIR)
+	install $(UDEV_FILES) $(UDEV_DIR)
 
 uninstall:
 	rm $(BIN_DIR)/$(PROGNAME)
