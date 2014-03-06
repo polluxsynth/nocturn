@@ -28,8 +28,6 @@ static struct libusb_device_handle *devh = NULL;
 uint16_t vendor_id = 0x1235;
 uint16_t product_id = 0x000a;
 
-int resubmit;
-
 /* Magical initiation strings.
  * From De Wet van Niekerk (dewert) - dvan.ca - dewert@gmail.com
  * (Github: dewert/nocturn-linux-midi)
@@ -103,7 +101,8 @@ int send_hexdata(libusb_device_handle *devh, uint8_t endpoint,
 
 void rx_cb(struct libusb_transfer *transfer)
 {
-  resubmit = 1;
+  int *resubmit = transfer->user_data;
+  *resubmit = 1;
 
   /* We printout buffer either if rx'd >= 3 bytes, and not CC96..103, _or_
    * if we get something other than a timeout event. */
@@ -133,6 +132,7 @@ int main(int argc, char **argv)
   uint8_t rx_ep = -1, tx_ep = -1;
   int written;
   libusb_context *ctx;
+  int resubmit;
 
   libusb_init(&ctx);
   devh = libusb_open_device_with_vid_pid(NULL, vendor_id, product_id);
@@ -283,7 +283,7 @@ int main(int argc, char **argv)
                                  devh,
                                  rx_ep,
                                  buf, 10,
-                                 rx_cb, NULL,
+                                 rx_cb, &resubmit,
                                  100);
                            
   printf("Submit transfer\n");      
