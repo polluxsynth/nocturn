@@ -21,6 +21,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <poll.h>
 #include <libusb.h> /* This also brings in thing like uint8_t etc */
 
 static struct libusb_device_handle *devh = NULL;
@@ -115,8 +116,9 @@ void rx_cb(struct libusb_transfer *transfer)
            transfer->timeout, transfer->status, transfer->actual_length);
 
     int i;
-    for (i = 0; i < transfer->actual_length; i++)
-      printf("%d ", transfer->buffer[i]);
+    if (transfer->status == LIBUSB_TRANSFER_COMPLETED)
+      for (i = 0; i < transfer->actual_length; i++)
+        printf("%d ", transfer->buffer[i]);
     printf("\n");
   }
 }
@@ -130,8 +132,9 @@ int main(int argc, char **argv)
   uint8_t ep0, ep1;
   uint8_t rx_ep = -1, tx_ep = -1;
   int written;
+  libusb_context *ctx;
 
-  libusb_init(NULL);
+  libusb_init(&ctx);
   devh = libusb_open_device_with_vid_pid(NULL, vendor_id, product_id);
   printf("Got USB device: %p\n", devh);
   if (!devh) {
@@ -291,9 +294,85 @@ int main(int argc, char **argv)
   }
 
   resubmit = 0;
+
+
+  struct timeval zero_tv = { 0 };
   printf("Now for main loop\n");
   while (1) {
-    libusb_handle_events(NULL);
+    struct timeval tv;
+    int timeout_ms;
+    static int first_time = 1;
+
+    /* Set up polling */
+    const struct libusb_pollfd **libusb_pollfds = libusb_get_pollfds(ctx);
+#define POLLFDS 10
+    struct pollfd pollfds[POLLFDS];
+    const struct libusb_pollfd **usb_pollfd = libusb_pollfds;
+    int fds;
+    for (fds = 0; fds < POLLFDS; fds++) {
+      if (!*usb_pollfd) break;
+      pollfds[fds].fd = (*usb_pollfd)->fd;
+      pollfds[fds].events = (*usb_pollfd)->events;
+      if (first_time)
+        printf("%d: fd %d events %d\n", fds, pollfds[fds].fd, pollfds[fds].events);
+      usb_pollfd++;
+    }
+    if (first_time)
+      printf("%d pollfd%s from libusb\n", fds, fds == 1 ? "" : "s");
+
+    /* figure out next timeout. Not really needed for Linux w/ timerfd supp. */
+    int timeouts = libusb_get_next_timeout(ctx, &tv);
+    if (timeouts < 0) {
+      printf("getting next usb timeout: %d\n", timeouts);
+      exit(2);
+    }
+#if 0 /* we probably don't need this, as we'll call handle_events_timeout
+       * unconditionally after poll() anyway */
+    if (timeouts && !memcmp(&tv, &zero_tv, sizeof(struct timeval))) {
+      printf("mainloop: libusb timed out before poll\n");
+      libusb_handle_events_timeout(ctx, &zero_tv);
+    }
+#endif
+    if (timeouts) /* timeout set by get_next_timeout */
+      timeout_ms = tv.tv_sec * 1000 + tv.tv_usec / 1000;
+    else
+      timeout_ms = -1; /* infinite timeout, since libusb didn't say */
+
+    /* In practice, poll will return fairly quickly with one POLLOUT fd
+     * so we don't want to spam debug with meaningless messages */
+    /* printf("mainloop: timeout %d ms\n", timeout_ms); */
+    int pollstat = poll(pollfds, fds, timeout_ms);
+    if (pollstat < 0) {
+      perror("polling usb fds");
+      exit(2);
+    }
+#if 0 /* same here, the output fd is usually available within 100 ms or so */
+    printf("mainloop: pollstat %d\n", pollstat);
+    if (pollstat) {
+      int i;
+      for (i = 0; i < fds; i++)
+        printf("fd %d: fd %d, revents %d\n", i, pollfds[i].fd, pollfds[i].revents);
+    }
+#endif
+    /* No matter if we get data or timed out, we call libusb */
+    libusb_handle_events_timeout(ctx, &zero_tv);
+
+    if (resubmit) {
+      resubmit = 0;
+      /* printf("Resubmit transfer\n"); */
+      stat = libusb_submit_transfer(transfer);
+      if (stat != 0) {
+        printf("submitting transfer: %d\n", stat);
+        exit(2);
+      }
+    }
+    free(libusb_pollfds);
+    first_time = 0;
+  }
+
+#if 0
+  while (1) {
+    libusb_handle_events(ctx);
     if (resubmit) {
       resubmit = 0;
       /* printf("Resubmit transfer\n"); */
@@ -304,10 +383,10 @@ int main(int argc, char **argv)
       }
     }
   }
-
+#endif
 
   libusb_free_transfer(transfer);
-                                 
+
 
 #if 0
   int showall = 0;
@@ -326,7 +405,7 @@ int main(int argc, char **argv)
   
   /* Clean up */
   libusb_close(devh);
-  libusb_exit(NULL);
+  libusb_exit(ctx);
 
   /* Be happy */
   return 0;
