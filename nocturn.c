@@ -46,7 +46,8 @@ char *init_data[] = { "b00000", "28002b4a2c002e35", "2a022c722e30", "7f00" };
  * CC64..71: Incrementors 1..8: Value 1 => increase, value 127 => decrease
  * (If more than one increase/decrease per message interval, rare, 
  * then we get 2,3,4 or 126,125,124, etc.)
- * CC72,73: LSB, MSB of slider (8 bits total: 7 in LSB, 1 in MSB)
+ * CC72: slider (7 bits)
+ * CC73: slider ? (Arbitrarily 0 or 64 when moving slider)
  * CC74: Speed dial incrementor
  * CC81: Speed dial push (0 = up, 127 = down)
  * CC96..103: Incrementor push/touch (0 = up, 127 = down)
