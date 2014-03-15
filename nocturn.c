@@ -77,6 +77,47 @@ int byte(const char *string)
   return (digit(string[0]) << 4) | digit(string[1]);
 }
 
+void event(int status, int chan, int data1, int data2)
+{
+  if (status == 176) {
+    /* 96 .. 103 range is knob 1..8 presses which seem to be very jittery. */
+    if (data1 < 96 || data1 > 103)
+      printf("Status %d (chan %d): %d,%d\n", status, chan, data1, data2);
+  }
+}
+
+enum midi_state { STATUS, DATA1, DATA2 };
+
+void process(int data)
+{
+  static enum midi_state state = STATUS;
+  static int status = -1;
+  static int chan = -1;
+  static int data1;
+  data &= 0xff; /* get rid of sign bit from potential cast */
+
+  if (data & 0x80) {
+    status = data & 0xf0;
+    chan = data & 0x0f;
+    state = DATA1;
+  } else 
+    /* data bytes */
+    switch (state) {
+      case STATUS: break; /* Shouldn't happen */
+      case DATA1: data1 = data; state = DATA2; break;
+      case DATA2: event(status, chan, data1, data);
+                  state = DATA1;
+                  break;
+      default: break;
+  }
+}
+
+void process_buffer(const char *data, int len)
+{
+  while (len--)
+    process(*data++);
+}
+
 int send_data(libusb_device_handle *devh, uint8_t endpoint,
               uint8_t *buf, int len, int *written)
 {
@@ -106,19 +147,13 @@ void rx_cb(struct libusb_transfer *transfer)
 
   /* We printout buffer either if rx'd >= 3 bytes, and not CC96..103, _or_
    * if we get something other than a timeout event. */
-  if (transfer->status == LIBUSB_TRANSFER_COMPLETED &&
-      transfer->actual_length >= 3 &&
-      (transfer->buffer[1] < 96 || transfer->buffer[1] > 103) ||
-      transfer->status != LIBUSB_TRANSFER_TIMED_OUT &&
-      transfer->status != LIBUSB_TRANSFER_COMPLETED) {
-    printf("%s: timeout %d, status %d, len %d: ", __func__,
-           transfer->timeout, transfer->status, transfer->actual_length);
-
-    int i;
-    if (transfer->status == LIBUSB_TRANSFER_COMPLETED)
-      for (i = 0; i < transfer->actual_length; i++)
-        printf("%d ", transfer->buffer[i]);
+  if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
+    process_buffer(transfer->buffer, transfer->actual_length);
+#if 0
+    int i; for (i = 0; i < transfer->actual_length; i++)
+      printf("%d ", transfer->buffer[i]);
     printf("\n");
+#endif
   }
 }
 
