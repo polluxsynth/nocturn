@@ -1,4 +1,5 @@
 #
+# Makefile for nocturn application.
 #
 # Copyright (C) 2014  Ricard Wanderlof <ricard2013@butoba.net>
 # Portions of Makefile Copyright (C) Lars Luthman <larsl@users.sourceforge.net>
