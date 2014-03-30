@@ -23,6 +23,9 @@
 #include <poll.h>
 #include <libusb.h> /* This also brings in thing like uint8_t etc */
 
+#define USB_DEBUG 0
+
+/* Vendor and product ID's */
 uint16_t vid_novation = 0x1235;
 uint16_t pid_nocturn = 0x000a;
 
@@ -189,7 +192,9 @@ int usb_connect(struct usb_info *usb_info)
     printf("Couldn't find Nocturn at %04x:%04x\n", vid_novation, pid_nocturn);
     return -2;
   }
+#if USB_DEBUG
   printf("Got USB device: %p\n", devh);
+#endif
 
   dev = libusb_get_device(devh);
   if (!dev) {
@@ -201,10 +206,14 @@ int usb_connect(struct usb_info *usb_info)
     printf("getting usb device descriptor: %d\n", stat);
     return -2;
   }
+#if USB_DEBUG
   printf("Descr: vendor %04x, product %04x\n",
          descr.idVendor, descr.idProduct);
   printf("Configurations: %d\n", descr.bNumConfigurations);
+#endif
 
+  /* We don't really need configuration descriptor #0 */
+#if USB_DEBUG
   struct libusb_config_descriptor *config0;
   stat = libusb_get_config_descriptor(dev, 0, &config0);
   if (stat < 0) {
@@ -219,6 +228,7 @@ int usb_connect(struct usb_info *usb_info)
   printf("Interface 0: i/f 0 ep 0 poll interval %d\n", config0->interface[0].altsetting[0].endpoint[0].bInterval);
   printf("Interface 0: i/f 0 ep 1 %d\n", config0->interface[0].altsetting[0].endpoint[1].bEndpointAddress);
   printf("Interface 0: i/f 0 ep 1 poll interval %d\n", config0->interface[0].altsetting[0].endpoint[1].bInterval);
+#endif
 
   struct libusb_config_descriptor *config1;
   stat = libusb_get_config_descriptor(dev, 1, &config1);
@@ -226,6 +236,7 @@ int usb_connect(struct usb_info *usb_info)
     printf("getting usb configuration descriptor: %d\n", stat);
     return -2;
   }
+#if USB_DEBUG
   printf("Configuration 1: interfaces %d\n", config1->bNumInterfaces);
   printf("Interface 0: #altsettings %d\n", config1->interface[0].num_altsetting);
   printf("Interface 0: i/f no %d\n", config1->interface[0].altsetting[0].bInterfaceNumber);
@@ -234,6 +245,7 @@ int usb_connect(struct usb_info *usb_info)
   printf("Interface 0: i/f 1 ep 0 poll interval %d\n", config1->interface[0].altsetting[0].endpoint[0].bInterval);
   printf("Interface 0: i/f 1 ep 1 %d\n", config1->interface[0].altsetting[0].endpoint[1].bEndpointAddress);
   printf("Interface 0: i/f 1 ep 1 poll interval %d\n", config1->interface[0].altsetting[0].endpoint[1].bInterval);
+#endif
 
   /* We know empirically that it is config1 that is the one we need
    * for communication, so extract the endpoint addresses from this one. */
@@ -350,18 +362,24 @@ int main(int argc, char **argv)
   uint8_t buf[10] = { 0 };
 
   /* Only on stack if we won't return before transfer completes. */
+#if USB_DEBUG
   printf("Alloc transfer\n");
+#endif
   struct libusb_transfer *transfer = libusb_alloc_transfer(0);
 
+#if USB_DEBUG
   printf("Fill transfer\n");
+#endif
   libusb_fill_interrupt_transfer(transfer,
                                  usb_info.devh,
                                  usb_info.rx_ep,
                                  buf, 10,
                                  rx_cb, &resubmit,
                                  100);
-                           
+            
+#if USB_DEBUG               
   printf("Submit transfer\n");      
+#endif
   stat = libusb_submit_transfer(transfer);
   if (stat != 0) {
     printf("submitting transfer: %d\n", stat);
