@@ -18,7 +18,6 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  ****************************************************************************/
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <poll.h>
@@ -31,11 +30,18 @@ uint16_t product_id = 0x000a;
 /* Magical initiation strings.
  * From De Wet van Niekerk (dewert) - dvan.ca - dewert@gmail.com
  * (Github: dewert/nocturn-linux-midi)
- * The protocol was reverse-engineered by felicitus (timoahummel on github).
+ * The protocol was reverse-engineered by Timo A. Hummel (felicitus on github).
  * 
  * In fact there is nothing magical about this. 0xB0 is the MIDI status
  * byte for Control Change, and after that it's all a question of running
- * status.
+ * status, i.e. the whole set of strings is just a series of control change
+ * messages.
+ * The question is then what the contol change data actually does. I have not
+ * taken a closer look at the CC numbers used to see if they for instance
+ * overlap with CC numbers used to control the LED rings etc on the Nocturn.
+ * At least one of them seems to affect some the timeout of some messages
+ * sent by the Nocturn. But apart from that, this "initialization" is not
+ * necessary to get the Nocturn working, and can be omitted.
  */
 char *init_data[] = { "b00000", "28002b4a2c002e35", "2a022c722e30", "7f00" };
 
