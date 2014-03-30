@@ -47,6 +47,8 @@ char *init_data[] = { "b00000", "28002b4a2c002e35", "2a022c722e30", "7f00" };
 
 /*
  * CC definitions for Nocturn:
+ * Note that since this isn't really MIDI, some of the CC's overlap with
+ * MIDI mode messages (i.e. CC 124..127).
  *
  * From Nocturn:
  * CC64..71: Incrementors 1..8: Value 1 => increase, value 127 => decrease
