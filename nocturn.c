@@ -23,9 +23,14 @@
 #include <poll.h>
 #include <libusb.h> /* This also brings in thing like uint8_t etc */
 
-static struct libusb_device_handle *devh = NULL;
-uint16_t vendor_id = 0x1235;
-uint16_t product_id = 0x000a;
+uint16_t vid_novation = 0x1235;
+uint16_t pid_nocturn = 0x000a;
+
+struct usb_info {
+  struct libusb_device_handle *devh;
+  uint8_t rx_ep;
+  uint8_t tx_ep;
+};
 
 /* Magical initiation strings.
  * From De Wet van Niekerk (dewert) - dvan.ca - dewert@gmail.com
@@ -167,34 +172,34 @@ void rx_cb(struct libusb_transfer *transfer)
 }
 
 
-int main(int argc, char **argv)
+/* Try to connect to Nocturn. 
+ * Return 0 if ok, with usb_info filled in.
+ * Return -2 if failure. */
+int usb_connect(struct usb_info *usb_info)
 {
   int stat;
   struct libusb_device *dev;
+  struct libusb_device_handle *devh;
   struct libusb_device_descriptor descr;
   uint8_t ep0, ep1;
   uint8_t rx_ep = -1, tx_ep = -1;
-  int written;
-  libusb_context *ctx;
-  int resubmit;
 
-  libusb_init(&ctx);
-  devh = libusb_open_device_with_vid_pid(NULL, vendor_id, product_id);
-  printf("Got USB device: %p\n", devh);
+  devh = libusb_open_device_with_vid_pid(NULL, vid_novation, pid_nocturn);
   if (!devh) {
-    printf("Couldn't find Nocturn, exiting\n");
-    exit(2);
+    printf("Couldn't find Nocturn at %04x:%04x\n", vid_novation, pid_nocturn);
+    return -2;
   }
+  printf("Got USB device: %p\n", devh);
 
   dev = libusb_get_device(devh);
   if (!dev) {
     printf("getting usb device: %d\n", stat);
-    exit(2);
+    return -2;
   }
   stat = libusb_get_device_descriptor(dev, &descr);
   if (!dev) {
     printf("getting usb device descriptor: %d\n", stat);
-    exit(2);
+    return -2;
   }
   printf("Descr: vendor %04x, product %04x\n",
          descr.idVendor, descr.idProduct);
@@ -204,7 +209,7 @@ int main(int argc, char **argv)
   stat = libusb_get_config_descriptor(dev, 0, &config0);
   if (stat < 0) {
     printf("getting usb configuration descriptor: %d\n", stat);
-    exit(2);
+    return -2;
   }
   printf("Configuration 0: interfaces %d\n", config0->bNumInterfaces);
   printf("Interface 0: #altsettings %d\n", config0->interface[0].num_altsetting);
@@ -219,7 +224,7 @@ int main(int argc, char **argv)
   stat = libusb_get_config_descriptor(dev, 1, &config1);
   if (stat < 0) {
     printf("getting usb configuration descriptor: %d\n", stat);
-    exit(2);
+    return -2;
   }
   printf("Configuration 1: interfaces %d\n", config1->bNumInterfaces);
   printf("Interface 0: #altsettings %d\n", config1->interface[0].num_altsetting);
@@ -240,20 +245,46 @@ int main(int argc, char **argv)
   if (ep1 & 128) rx_ep = ep1; else tx_ep = ep1;
   if (tx_ep < 0 || rx_ep < 0) {
     printf("Failed to set rx and tx endpoints\n");
-    exit(2);
+    return -2;
   }
 
   /* Set configuration #1 */
   stat = libusb_set_configuration(devh, 1);
   if (stat < 0) {
     printf("setting usb configuration: %d\n", stat);
-    exit(2);
+    return -2;
   }
 
   libusb_detach_kernel_driver(devh, 0); /* need this ? */
   stat = libusb_claim_interface(devh, 0);
   if (stat < 0) {
     printf("claiming usb interface: %d\n", stat);
+    return -2;
+  }
+
+  /* Now we're set up and ready to communicate */
+
+  usb_info->devh = devh;
+  usb_info->rx_ep = rx_ep;
+  usb_info->tx_ep = tx_ep;
+
+  return 0;
+}
+
+
+int main(int argc, char **argv)
+{
+  int stat;
+  int written;
+  libusb_context *ctx;
+  int resubmit;
+  struct usb_info usb_info = { NULL, -1, -1 };
+
+  libusb_init(&ctx);
+
+  stat = usb_connect(&usb_info);
+  if (stat < 0) {
+    printf("Couldn't connect to Nocturn\n");
     exit(2);
   }
 
@@ -261,18 +292,18 @@ int main(int argc, char **argv)
 
   /* First send the magical initiation strings */
 #if 0
-  stat = send_hexdata(devh, tx_ep, init_data[0], &written);
+  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, init_data[0], &written);
   if (!stat) {
     printf("Wrote %d bytes\n", written);
-    stat = send_hexdata(devh, tx_ep, init_data[1], &written);
+    stat = send_hexdata(usb_info.devh, usb_info.tx_ep, init_data[1], &written);
   }
   if (!stat) {
     printf("Wrote %d bytes\n", written);
-    stat = send_hexdata(devh, tx_ep, init_data[2], &written);
+    stat = send_hexdata(usb_info.devh, usb_info.tx_ep, init_data[2], &written);
   }
   if (!stat) {
     printf("Wrote %d bytes\n", written);
-    stat = send_hexdata(devh, tx_ep, init_data[3], &written);
+    stat = send_hexdata(usb_info.devh, usb_info.tx_ep, init_data[3], &written);
   }
   if (!stat)
     printf("Wrote %d bytes\n", written);
@@ -283,13 +314,13 @@ int main(int argc, char **argv)
 #endif
 
 #if 1
-  stat = send_hexdata(devh, tx_ep, "b04800", &written);
+  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b04800", &written);
   if (stat < 0) {
     printf("sending test usb data: %d\n", stat);
     exit(2);
   }
 #endif
-  stat = send_hexdata(devh, tx_ep, "b04060", &written);
+  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b04060", &written);
   if (stat < 0) {
     printf("sending test usb data: %d\n", stat);
     exit(2);
@@ -297,8 +328,8 @@ int main(int argc, char **argv)
   printf("Wrote %d bytes\n", written);
 
 #if 1
-  stat = send_hexdata(devh, tx_ep, "b05130", &written);
-  stat = send_hexdata(devh, tx_ep, "b05030", &written);
+  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b05130", &written);
+  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b05030", &written);
 #endif
   printf("Wrote %d bytes\n", written);
   
@@ -306,9 +337,9 @@ int main(int argc, char **argv)
   int i;
   for (i = 64; i < 128; i++) {
     uint8_t cc[3] = { 176, i, 0x50 };
-    stat = send_data(devh, tx_ep, cc, 3, &written);
+    stat = send_data(usb_info.devh, usb_info.tx_ep, cc, 3, &written);
     cc[1] = 0x50;
-    stat = send_data(devh, tx_ep, cc, 3, &written);
+    stat = send_data(usb_info.devh, usb_info.tx_ep, cc, 3, &written);
     if (stat < 0) {
       printf("sending usb data: %d\n", stat);
       exit(2);
@@ -324,8 +355,8 @@ int main(int argc, char **argv)
 
   printf("Fill transfer\n");
   libusb_fill_interrupt_transfer(transfer,
-                                 devh,
-                                 rx_ep,
+                                 usb_info.devh,
+                                 usb_info.rx_ep,
                                  buf, 10,
                                  rx_cb, &resubmit,
                                  100);
@@ -338,7 +369,6 @@ int main(int argc, char **argv)
   }
 
   resubmit = 0;
-
 
   struct timeval zero_tv = { 0 };
   printf("Now for main loop\n");
@@ -437,7 +467,7 @@ int main(int argc, char **argv)
   while (1) {
     uint8_t buf[10] = { 0 };
     int read;
-    stat = libusb_interrupt_transfer(devh, rx_ep, buf, 10, &read, 0);
+    stat = libusb_interrupt_transfer(usb_info.devh, usb_info.rx_ep, buf, 10, &read, 0);
     if (stat == 0) {
       if (showall || buf[1] < 96 || buf[1] > 103)
         /* 96..103 are knobs pressed, but often generate random events */
@@ -448,7 +478,7 @@ int main(int argc, char **argv)
 #endif
   
   /* Clean up */
-  libusb_close(devh);
+  libusb_close(usb_info.devh);
   libusb_exit(ctx);
 
   /* Be happy */
