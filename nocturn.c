@@ -84,16 +84,8 @@ char *init_data[] = { "b00000", "28002b4a2c002e35", "2a022c722e30", "7f00" };
  */
 
 
-int digit(uint8_t hexdigit)
-{
-  return hexdigit - '0' - ((hexdigit > '9') ? ('a' - ('9' + 1)) : 0);
-}
-
-int byte(const char *string)
-{
-  return (digit(string[0]) << 4) | digit(string[1]);
-}
-
+/* Processed finished event. Called whenever a complete event has
+ * been assemebled. */
 void event(int status, int chan, int data1, int data2)
 {
   if (status == 176) {
@@ -105,6 +97,7 @@ void event(int status, int chan, int data1, int data2)
 
 enum midi_state { STATUS, DATA1, DATA2 };
 
+/* Process MIDI-like data from Nocturn. Handle running status. */
 void process(int data)
 {
   static enum midi_state state = STATUS;
@@ -129,18 +122,50 @@ void process(int data)
   }
 }
 
+/* Process buffer of data from Nocturn */
 void process_buffer(const char *data, int len)
 {
   while (len--)
     process(*data++);
 }
 
+/* Receive callback. Called when we get data from Nocturn. */
+void rx_cb(struct libusb_transfer *transfer)
+{
+  int *resubmit = transfer->user_data;
+  *resubmit = 1;
+
+  if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
+    process_buffer(transfer->buffer, transfer->actual_length);
+#if 0
+    int i; for (i = 0; i < transfer->actual_length; i++)
+      printf("%d ", transfer->buffer[i]);
+    printf("\n");
+#endif
+  }
+}
+
+
+/* Convert character 0123456789abcdef -> 0..15 */
+int digit(uint8_t hexdigit)
+{
+  return hexdigit - '0' - ((hexdigit > '9') ? ('a' - ('9' + 1)) : 0);
+}
+
+/* Convert string of two hex chars to byte 0..255 */
+int byte(const char *string)
+{
+  return (digit(string[0]) << 4) | digit(string[1]);
+}
+
+/* Simple send data to Nocturn */
 int send_data(libusb_device_handle *devh, uint8_t endpoint,
               uint8_t *buf, int len, int *written)
 {
   return libusb_interrupt_transfer(devh, endpoint, buf, len, written, 500);
 }
 
+/* Send hexadecimal string to Nocturn */
 int send_hexdata(libusb_device_handle *devh, uint8_t endpoint,
                  const char *string, int *written)
 {
@@ -155,23 +180,6 @@ int send_hexdata(libusb_device_handle *devh, uint8_t endpoint,
   printf("Sending %d bytes: %d %d %d ...\n", p - buf, buf[0], buf[1], buf[2]);
 
   return send_data(devh, endpoint, buf, p - buf, written);
-}
-
-void rx_cb(struct libusb_transfer *transfer)
-{
-  int *resubmit = transfer->user_data;
-  *resubmit = 1;
-
-  /* We printout buffer either if rx'd >= 3 bytes, and not CC96..103, _or_
-   * if we get something other than a timeout event. */
-  if (transfer->status == LIBUSB_TRANSFER_COMPLETED) {
-    process_buffer(transfer->buffer, transfer->actual_length);
-#if 0
-    int i; for (i = 0; i < transfer->actual_length; i++)
-      printf("%d ", transfer->buffer[i]);
-    printf("\n");
-#endif
-  }
 }
 
 
@@ -326,12 +334,14 @@ int main(int argc, char **argv)
 #endif
 
 #if 1
+  /* LED ring around incrementor 1: value */
   stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b04800", &written);
   if (stat < 0) {
     printf("sending test usb data: %d\n", stat);
     exit(2);
   }
 #endif
+  /* LED ring around incrementor 1: mode */
   stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b04060", &written);
   if (stat < 0) {
     printf("sending test usb data: %d\n", stat);
@@ -340,7 +350,9 @@ int main(int argc, char **argv)
   printf("Wrote %d bytes\n", written);
 
 #if 1
+  /* LED ring around speed dial: mode */
   stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b05130", &written);
+  /* LED ring around speed dial: value */
   stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b05030", &written);
 #endif
   printf("Wrote %d bytes\n", written);
