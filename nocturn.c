@@ -365,28 +365,12 @@ int nocturn_init(struct usb_info *usb_info)
   return 0;
 }
 
-
-int main(int argc, char **argv)
+int receive_loop(libusb_context *ctx, struct usb_info *usb_info)
 {
+#define RX_BUFSIZE 10
+  uint8_t buf[RX_BUFSIZE] = { 0 };
   int stat;
-  libusb_context *ctx;
   int resubmit;
-  struct usb_info usb_info = { NULL, -1, -1 };
-
-  libusb_init(&ctx);
-
-  stat = usb_connect(&usb_info);
-  if (stat < 0) {
-    printf("Couldn't connect to Nocturn: %d\n", stat);
-    exit(2);
-  }
-
-  /* Now we're set up and ready to communicate */
-
-  /* Send any initialization strings, plus stored setup */
-  stat = nocturn_init(&usb_info);
-
-  uint8_t buf[10] = { 0 };
 
   /* Only on stack if we won't return before transfer completes. */
 #if USB_DEBUG
@@ -398,9 +382,9 @@ int main(int argc, char **argv)
   printf("Fill transfer\n");
 #endif
   libusb_fill_interrupt_transfer(transfer,
-                                 usb_info.devh,
-                                 usb_info.rx_ep,
-                                 buf, 10,
+                                 usb_info->devh,
+                                 usb_info->rx_ep,
+                                 buf, RX_BUFSIZE,
                                  rx_cb, &resubmit,
                                  100);
             
@@ -408,9 +392,9 @@ int main(int argc, char **argv)
   printf("Submit transfer\n");      
 #endif
   stat = libusb_submit_transfer(transfer);
-  if (stat != 0) {
+  if (stat < 0) {
     printf("submitting transfer: %d\n", stat);
-    exit(2);
+    goto exit_ml;
   }
 
   resubmit = 0;
@@ -442,8 +426,9 @@ int main(int argc, char **argv)
     /* figure out next timeout. Not really needed for Linux w/ timerfd supp. */
     int timeouts = libusb_get_next_timeout(ctx, &tv);
     if (timeouts < 0) {
-      printf("getting next usb timeout: %d\n", timeouts);
-      exit(2);
+      stat = timeouts;
+      printf("getting next usb timeout: %d\n", stat);
+      break;
     }
 #if 0 /* we probably don't need this, as we'll call handle_events_timeout
        * unconditionally after poll() anyway */
@@ -463,7 +448,8 @@ int main(int argc, char **argv)
     int pollstat = poll(pollfds, fds, timeout_ms);
     if (pollstat < 0) {
       perror("polling usb fds");
-      exit(2);
+      stat = LIBUSB_ERROR_OTHER;
+      break;
     }
 #if 0 /* same here, the output fd is usually available within 100 ms or so */
     printf("mainloop: pollstat %d\n", pollstat);
@@ -482,7 +468,7 @@ int main(int argc, char **argv)
       stat = libusb_submit_transfer(transfer);
       if (stat != 0) {
         printf("submitting transfer: %d\n", stat);
-        exit(2);
+        break;
       }
     }
     free(libusb_pollfds);
@@ -498,11 +484,13 @@ int main(int argc, char **argv)
       stat = libusb_submit_transfer(transfer);
       if (stat != 0) {
         printf("submitting transfer: %d\n", stat);
-        exit(2);
+        goto exit_ml;
       }
     }
   }
 #endif
+
+exit_ml:
 
   libusb_free_transfer(transfer);
 
@@ -512,7 +500,7 @@ int main(int argc, char **argv)
   while (1) {
     uint8_t buf[10] = { 0 };
     int read;
-    stat = libusb_interrupt_transfer(usb_info.devh, usb_info.rx_ep, buf, 10, &read, 0);
+    stat = libusb_interrupt_transfer(usb_info->devh, usb_info->rx_ep, buf, 10, &read, 0);
     if (stat == 0) {
       if (showall || buf[1] < 96 || buf[1] > 103)
         /* 96..103 are knobs pressed, but often generate random events */
@@ -521,7 +509,33 @@ int main(int argc, char **argv)
       printf("Read stat %d\n", stat);
   }
 #endif
+
+  return stat;
+}
   
+
+int main(int argc, char **argv)
+{
+  int stat;
+  libusb_context *ctx;
+  struct usb_info usb_info = { NULL, -1, -1 };
+
+  libusb_init(&ctx);
+
+  stat = usb_connect(&usb_info);
+  if (stat < 0) {
+    printf("Couldn't connect to Nocturn: %d\n", stat);
+    exit(2);
+  }
+
+  /* Now we're set up and ready to communicate */
+
+  /* Send any initialization strings, plus stored setup */
+  stat = nocturn_init(&usb_info);
+
+  /* Run main loop until something goes belly up */
+  stat = receive_loop(ctx, &usb_info);
+
   /* Clean up */
   libusb_close(usb_info.devh);
   libusb_exit(ctx);
