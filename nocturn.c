@@ -516,25 +516,42 @@ exit_ml:
 
 int main(int argc, char **argv)
 {
-  int stat;
+  int stat = 0;
   libusb_context *ctx;
   struct usb_info usb_info = { NULL, -1, -1 };
 
   libusb_init(&ctx);
 
-  stat = usb_connect(&usb_info);
-  if (stat < 0) {
-    printf("Couldn't connect to Nocturn: %d\n", stat);
-    exit(2);
-  }
+  /* Loop indefinitely, trying to reconnect if connection severed. */
+  do {
+    if (stat) {
+      printf("Reconnecting in one second\n");
+      sleep(1);
+    }
 
-  /* Now we're set up and ready to communicate */
+    /* Attempt to connect to Nocturn */
+    stat = usb_connect(&usb_info);
+    if (stat < 0) {
+      printf("Couldn't connect to Nocturn: %d\n", stat);
+      continue;
+    }
 
-  /* Send any initialization strings, plus stored setup */
-  stat = nocturn_init(&usb_info);
+    /* Now we're set up and ready to communicate */
 
-  /* Run main loop until something goes belly up */
-  stat = receive_loop(ctx, &usb_info);
+    /* Send any initialization strings, plus stored setup */
+    stat = nocturn_init(&usb_info);
+    if (stat < 0) {
+      printf("Couldn't send to Nocturn: %d\n", stat);
+      continue;
+    }
+
+    /* Run main loop until something goes belly up */
+    stat = receive_loop(ctx, &usb_info);
+    if (stat < 0) {
+      printf("Couldn't receive from Nocturn: %d\n", stat);
+      continue;
+    }
+  } while (stat);
 
   /* Clean up */
   libusb_close(usb_info.devh);
