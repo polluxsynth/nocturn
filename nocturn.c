@@ -185,7 +185,7 @@ int send_hexdata(libusb_device_handle *devh, uint8_t endpoint,
 
 /* Try to connect to Nocturn. 
  * Return 0 if ok, with usb_info filled in.
- * Return -2 if failure. */
+ * Return LIBUSB_ERROR_foo if failure. */
 int usb_connect(struct usb_info *usb_info)
 {
   int stat;
@@ -198,7 +198,7 @@ int usb_connect(struct usb_info *usb_info)
   devh = libusb_open_device_with_vid_pid(NULL, vid_novation, pid_nocturn);
   if (!devh) {
     printf("Couldn't find Nocturn at %04x:%04x\n", vid_novation, pid_nocturn);
-    return -2;
+    return LIBUSB_ERROR_NO_DEVICE;
   }
 #if USB_DEBUG
   printf("Got USB device: %p\n", devh);
@@ -207,12 +207,12 @@ int usb_connect(struct usb_info *usb_info)
   dev = libusb_get_device(devh);
   if (!dev) {
     printf("getting usb device: %d\n", stat);
-    return -2;
+    return LIBUSB_ERROR_NO_DEVICE;
   }
   stat = libusb_get_device_descriptor(dev, &descr);
-  if (!dev) {
+  if (stat < 0) {
     printf("getting usb device descriptor: %d\n", stat);
-    return -2;
+    return stat;
   }
 #if USB_DEBUG
   printf("Descr: vendor %04x, product %04x\n",
@@ -226,7 +226,7 @@ int usb_connect(struct usb_info *usb_info)
   stat = libusb_get_config_descriptor(dev, 0, &config0);
   if (stat < 0) {
     printf("getting usb configuration descriptor: %d\n", stat);
-    return -2;
+    return stat;
   }
   printf("Configuration 0: interfaces %d\n", config0->bNumInterfaces);
   printf("Interface 0: #altsettings %d\n", config0->interface[0].num_altsetting);
@@ -242,7 +242,7 @@ int usb_connect(struct usb_info *usb_info)
   stat = libusb_get_config_descriptor(dev, 1, &config1);
   if (stat < 0) {
     printf("getting usb configuration descriptor: %d\n", stat);
-    return -2;
+    return stat;
   }
 #if USB_DEBUG
   printf("Configuration 1: interfaces %d\n", config1->bNumInterfaces);
@@ -265,21 +265,21 @@ int usb_connect(struct usb_info *usb_info)
   if (ep1 & 128) rx_ep = ep1; else tx_ep = ep1;
   if (tx_ep < 0 || rx_ep < 0) {
     printf("Failed to set rx and tx endpoints\n");
-    return -2;
+    return LIBUSB_ERROR_NO_DEVICE;
   }
 
   /* Set configuration #1 */
   stat = libusb_set_configuration(devh, 1);
   if (stat < 0) {
     printf("setting usb configuration: %d\n", stat);
-    return -2;
+    return stat;
   }
 
   libusb_detach_kernel_driver(devh, 0); /* need this ? */
   stat = libusb_claim_interface(devh, 0);
   if (stat < 0) {
     printf("claiming usb interface: %d\n", stat);
-    return -2;
+    return stat;
   }
 
   /* Now we're set up and ready to communicate */
@@ -304,7 +304,7 @@ int main(int argc, char **argv)
 
   stat = usb_connect(&usb_info);
   if (stat < 0) {
-    printf("Couldn't connect to Nocturn\n");
+    printf("Couldn't connect to Nocturn: %d\n", stat);
     exit(2);
   }
 
