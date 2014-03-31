@@ -292,10 +292,83 @@ int usb_connect(struct usb_info *usb_info)
 }
 
 
-int main(int argc, char **argv)
+/* Send start-up stuff to Nocturn, if necessary */
+int nocturn_init(struct usb_info *usb_info)
 {
   int stat;
   int written;
+
+#if 0
+  /* First send the magical initiation strings */
+  stat = send_hexdata(usb_info->devh, usb_info->tx_ep, init_data[0], &written);
+  if (stat >= 0) {
+    printf("Wrote %d bytes\n", written);
+    stat = send_hexdata(usb_info->devh, usb_info->tx_ep, init_data[1], &written);
+  }
+  if (stat >= 0) {
+    printf("Wrote %d bytes\n", written);
+    stat = send_hexdata(usb_info->devh, usb_info->tx_ep, init_data[2], &written);
+  }
+  if (stat >= 0) {
+    printf("Wrote %d bytes\n", written);
+    stat = send_hexdata(usb_info->devh, usb_info->tx_ep, init_data[3], &written);
+  }
+  if (stat >= 0)
+    printf("Wrote %d bytes\n", written);
+
+  if (stat < 0) {
+    printf("sending initial usb data: %d\n", stat);
+    return stat;
+  }
+
+#endif
+
+#if 1
+  /* LED ring around incrementor 1: value */
+  stat = send_hexdata(usb_info->devh, usb_info->tx_ep, "b04800", &written);
+  if (stat < 0) {
+    printf("sending test usb data: %d\n", stat);
+    return stat;
+  }
+  /* LED ring around incrementor 1: mode */
+  stat = send_hexdata(usb_info->devh, usb_info->tx_ep, "b04060", &written);
+  if (stat < 0) {
+    printf("sending test usb data: %d\n", stat);
+    return stat;
+  }
+  printf("Wrote %d bytes\n", written);
+#endif
+
+#if 1
+  /* LED ring around speed dial: mode */
+  stat = send_hexdata(usb_info->devh, usb_info->tx_ep, "b05130", &written);
+  /* LED ring around speed dial: value */
+  stat = send_hexdata(usb_info->devh, usb_info->tx_ep, "b05030", &written);
+  printf("Wrote %d bytes\n", written);
+#endif
+  
+#if 0
+  /* Send a bunch of CC's */
+  int i;
+  for (i = 64; i < 128; i++) {
+    uint8_t cc[3] = { 176, i, 0x50 };
+    stat = send_data(usb_info->devh, usb_info->tx_ep, cc, 3, &written);
+    cc[1] = 0x50;
+    stat = send_data(usb_info->devh, usb_info->tx_ep, cc, 3, &written);
+    if (stat < 0) {
+      printf("sending usb data: %d\n", stat);
+      return stat;
+    }
+  }
+#endif
+
+  return 0;
+}
+
+
+int main(int argc, char **argv)
+{
+  int stat;
   libusb_context *ctx;
   int resubmit;
   struct usb_info usb_info = { NULL, -1, -1 };
@@ -310,66 +383,8 @@ int main(int argc, char **argv)
 
   /* Now we're set up and ready to communicate */
 
-  /* First send the magical initiation strings */
-#if 0
-  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, init_data[0], &written);
-  if (!stat) {
-    printf("Wrote %d bytes\n", written);
-    stat = send_hexdata(usb_info.devh, usb_info.tx_ep, init_data[1], &written);
-  }
-  if (!stat) {
-    printf("Wrote %d bytes\n", written);
-    stat = send_hexdata(usb_info.devh, usb_info.tx_ep, init_data[2], &written);
-  }
-  if (!stat) {
-    printf("Wrote %d bytes\n", written);
-    stat = send_hexdata(usb_info.devh, usb_info.tx_ep, init_data[3], &written);
-  }
-  if (!stat)
-    printf("Wrote %d bytes\n", written);
-  if (stat < 0) {
-    printf("sending initial usb data: %d\n", stat);
-    exit(2);
-  }
-#endif
-
-#if 1
-  /* LED ring around incrementor 1: value */
-  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b04800", &written);
-  if (stat < 0) {
-    printf("sending test usb data: %d\n", stat);
-    exit(2);
-  }
-#endif
-  /* LED ring around incrementor 1: mode */
-  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b04060", &written);
-  if (stat < 0) {
-    printf("sending test usb data: %d\n", stat);
-    exit(2);
-  }
-  printf("Wrote %d bytes\n", written);
-
-#if 1
-  /* LED ring around speed dial: mode */
-  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b05130", &written);
-  /* LED ring around speed dial: value */
-  stat = send_hexdata(usb_info.devh, usb_info.tx_ep, "b05030", &written);
-#endif
-  printf("Wrote %d bytes\n", written);
-  
-#if 0
-  int i;
-  for (i = 64; i < 128; i++) {
-    uint8_t cc[3] = { 176, i, 0x50 };
-    stat = send_data(usb_info.devh, usb_info.tx_ep, cc, 3, &written);
-    cc[1] = 0x50;
-    stat = send_data(usb_info.devh, usb_info.tx_ep, cc, 3, &written);
-    if (stat < 0) {
-      printf("sending usb data: %d\n", stat);
-      exit(2);
-    }
-  }
-#endif
+  /* Send any initialization strings, plus stored setup */
+  stat = nocturn_init(&usb_info);
 
   uint8_t buf[10] = { 0 };
 
