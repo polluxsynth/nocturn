@@ -29,8 +29,8 @@ UDEV_DIR = /etc/udev/rules.d
 # For development, we keep everything in the same (development) directory
 UI_DIR=.
 
-OBJS = nocturn.o
-INCS = 
+OBJS = nocturn.o midi.o debug.o
+INCS = midi.h debug.h
 UI_FILES = 
 DOC_FILES = README COPYING
 UDEV_FILES = 40-nocturn.rules
