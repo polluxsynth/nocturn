@@ -23,6 +23,9 @@
 #include <poll.h>
 #include <libusb.h> /* This also brings in thing like uint8_t etc */
 
+#include "debug.h"
+#include "midi.h"
+
 #define USB_DEBUG 0
 
 /* Vendor and product ID's */
@@ -92,6 +95,10 @@ void event(int status, int chan, int data1, int data2)
     /* 96 .. 103 range is knob 1..8 presses which seem to be very jittery. */
     if (data1 < 96 || data1 > 103)
       printf("Status %d (chan %d): %d,%d\n", status, chan, data1, data2);
+    /* Simple test: map data slider to CC 69 = F1 cutoff on Blofeld */
+    if (data1 == 72)
+      if (midi_send_control_change(1, 69, data2) < 0)
+        printf("Couldn't send midi\n");
   }
 }
 
@@ -365,7 +372,8 @@ int nocturn_init(struct usb_info *usb_info)
   return 0;
 }
 
-int receive_loop(libusb_context *ctx, struct usb_info *usb_info)
+int receive_loop(libusb_context *ctx, struct usb_info *usb_info,
+                 struct polls *midipolls)
 {
 #define RX_BUFSIZE 10
   uint8_t buf[RX_BUFSIZE] = { 0 };
@@ -407,9 +415,11 @@ int receive_loop(libusb_context *ctx, struct usb_info *usb_info)
     static int first_time = 1;
 
     /* Set up polling */
-    const struct libusb_pollfd **libusb_pollfds = libusb_get_pollfds(ctx);
 #define POLLFDS 10
     struct pollfd pollfds[POLLFDS];
+
+    /* Set up USB polling */
+    const struct libusb_pollfd **libusb_pollfds = libusb_get_pollfds(ctx);
     const struct libusb_pollfd **usb_pollfd = libusb_pollfds;
     int fds;
     for (fds = 0; fds < POLLFDS; fds++) {
@@ -417,11 +427,22 @@ int receive_loop(libusb_context *ctx, struct usb_info *usb_info)
       pollfds[fds].fd = (*usb_pollfd)->fd;
       pollfds[fds].events = (*usb_pollfd)->events;
       if (first_time)
-        printf("%d: fd %d events %d\n", fds, pollfds[fds].fd, pollfds[fds].events);
+        printf("%d: USB fd %d events %d\n", fds, pollfds[fds].fd, pollfds[fds].events);
       usb_pollfd++;
     }
     if (first_time)
       printf("%d pollfd%s from libusb\n", fds, fds == 1 ? "" : "s");
+
+    /* Set up MIDI polling. Only really needed for MIDI input. */
+    int i = 0, mpolls = midipolls->npfd;
+    for (; fds < POLLFDS; fds++) {
+      if (i >= mpolls) break;
+      pollfds[fds] = midipolls->pollfds[i++];
+      if (first_time)
+        printf("%d: MIDI fd %d events %d\n", fds, pollfds[fds].fd, pollfds[fds].events);
+    }
+    if (first_time)
+      printf("%d pollfd%s from MIDI\n", mpolls, mpolls == 1 ? "" : "s");
 
     /* figure out next timeout. Not really needed for Linux w/ timerfd supp. */
     int timeouts = libusb_get_next_timeout(ctx, &tv);
@@ -519,8 +540,18 @@ int main(int argc, char **argv)
   int stat = 0;
   libusb_context *ctx;
   struct usb_info usb_info = { NULL, -1, -1 };
+  struct polls *midipolls;
+
+  debug = 1;
 
   libusb_init(&ctx);
+
+  midipolls = midi_init_alsa();
+  if (!midipolls)
+    return 2;
+
+  /* Normally we'd only expect one fd here, but just in case we got > 1 */
+  dbgprintf("Midi poll fds: %d\n", midipolls->npfd);
 
   /* Loop indefinitely, trying to reconnect if connection severed. */
   do {
@@ -546,7 +577,7 @@ int main(int argc, char **argv)
     }
 
     /* Run main loop until something goes belly up */
-    stat = receive_loop(ctx, &usb_info);
+    stat = receive_loop(ctx, &usb_info, midipolls);
     if (stat < 0) {
       printf("Couldn't receive from Nocturn: %d\n", stat);
       continue;
