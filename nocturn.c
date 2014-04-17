@@ -441,6 +441,7 @@ int receive_loop(libusb_context *ctx, struct usb_info *usb_info,
 
     /* Set up MIDI polling. Only really needed for MIDI input. */
     int i = 0, mpolls = midipolls->npfd;
+    int usbfds = fds;
     for (; fds < POLLFDS; fds++) {
       if (i >= mpolls) break;
       pollfds[fds] = midipolls->pollfds[i++];
@@ -474,7 +475,7 @@ int receive_loop(libusb_context *ctx, struct usb_info *usb_info,
     /* printf("mainloop: timeout %d ms\n", timeout_ms); */
     int pollstat = poll(pollfds, fds, timeout_ms);
     if (pollstat < 0) {
-      perror("polling usb fds");
+      perror("polling usb and ALSA MIDI fds");
       stat = LIBUSB_ERROR_OTHER;
       break;
     }
@@ -488,6 +489,11 @@ int receive_loop(libusb_context *ctx, struct usb_info *usb_info,
 #endif
     /* No matter if we get data or timed out, we call libusb */
     libusb_handle_events_timeout(ctx, &zero_tv);
+
+    /* And if we get a MIDI event we handle that */
+    for (i = usbfds; i < fds; i++)
+      if (pollfds[i].revents & POLLIN)
+        midi_input();
 
     if (resubmit) {
       resubmit = 0;
