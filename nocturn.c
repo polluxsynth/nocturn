@@ -95,10 +95,16 @@ void event(int status, int chan, int data1, int data2)
     /* 96 .. 103 range is knob 1..8 presses which seem to be very jittery. */
     if (data1 < 96 || data1 > 103)
       printf("Status %d (chan %d): %d,%d\n", status, chan, data1, data2);
+#ifdef CC72_TEST
     /* Simple test: map data slider to CC 69 = F1 cutoff on Blofeld */
     if (data1 == 72)
       if (midi_send_control_change(1, 69, data2) < 0)
         printf("Couldn't send midi\n");
+#else
+    if (midi_send_control_change(1, data1, data2) < 0)
+      printf("Couldn't send midi\n");
+
+#endif
   }
 }
 
