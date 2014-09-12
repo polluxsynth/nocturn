@@ -23,3 +23,6 @@ e.g. increment values of 2 or 3, or decrement values of 126 or 125.
 The application could principally handle this, using an internal edit map
 to convert the increments and decrements to absolute values, but nothing
 like that has been implemented yet.
+
+Currently, only output from the Nocturn is supported. (However, as a test/demo,
+the daemon lights up a couple of the LED rings on the Nocturn when it starts).
