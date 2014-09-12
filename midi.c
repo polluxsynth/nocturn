@@ -29,6 +29,9 @@
 int seq_port;
 snd_seq_t *seq;
 
+/* Receiver(s) */
+static midi_cc_receiver cc_receiver;
+
 /* Initialize ALSA sequencer interface, and create MIDI port */
 /* Return list of fds that main loop needs to poll() in order to detect
  * activity. */
@@ -175,12 +178,21 @@ midi_input(void)
       case SND_SEQ_EVENT_CONTROLLER:
         dbgprintf("CC: ch %d, param %d, val %d\n", ev->data.control.channel + 1,
                 ev->data.control.param, ev->data.control.value);
+        if (cc_receiver) cc_receiver(ev->data.control.channel,
+                                     ev->data.control.param,
+                                     ev->data.control.value);
         /* Do something useful here */
         break;
       default:
         break;
     }
   }
+}
+
+void
+register_midi_cc_reciver(midi_cc_receiver receiver)
+{
+  cc_receiver = receiver;
 }
 
 /**************************** End of file midi.c ****************************/

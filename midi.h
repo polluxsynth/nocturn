@@ -34,6 +34,9 @@ struct polls
   struct pollfd pollfds[];
 };
 
+/* Control change receiver type */
+typedef void (*midi_cc_receiver)(int ch, int cc, int val);
+
 /* Initialize ALSA sequencer interface, and create MIDI port */
 struct polls *midi_init_alsa(void);
 
@@ -45,6 +48,9 @@ void midi_input(void);
 
 /* Make bidirectional MIDI connection to specified remote device */
 int midi_connect(const char *remote_device);
+
+/* Register sysex receiver */
+void midi_register_cc(midi_cc_receiver receiver);
 
 #endif /* _MIDI_H_ */
 
