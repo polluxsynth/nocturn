@@ -29,17 +29,6 @@
 int seq_port;
 snd_seq_t *seq;
 
-/* System exclusive. So far, we handle this at the basic level, managing
- * up to 128 system exclusive ID's. */
-#define MAX_SYSEX_IDS 128
-
-struct sysex_info {
-  midi_sysex_receiver sysex_receiver;
-  int max_buflen;
-};
-
-struct sysex_info sysex_receivers[MAX_SYSEX_IDS];
-
 /* Initialize ALSA sequencer interface, and create MIDI port */
 /* Return list of fds that main loop needs to poll() in order to detect
  * activity. */
@@ -165,68 +154,6 @@ midi_send_control_change(int channel, int controller, int value)
   dbgprintf("Ch %d:CC %d:%d\n", channel, controller, value);
 }
 
-/* Send sysex buffer (buffer must contain complete sysex msg w/ SYSEX & EOX) */
-int
-midi_send_sysex(void *buf, int buflen)
-{
-  int err;
-
-  snd_seq_event_t sendev;
-  snd_seq_ev_clear(&sendev);
-  snd_seq_ev_set_subs(&sendev);
-  snd_seq_ev_set_sysex(&sendev, buflen, buf);
-  snd_seq_ev_set_direct(&sendev);
-  err = snd_seq_event_output_direct(seq, &sendev);
-  if (err < 0)
-    dbgprintf("Couldn't send MIDI sysex: %s\n", snd_strerror(err));
-  return err;
-}
-
-/* Handle sysex event. */
-/* Alsa seems to return sysex data in chunks of 256 bytes, so piece the
- * chunks together to form the complete message. */
-static void sysex_in(snd_seq_event_t *ev)
-{
-  static int srcidx = 0, dstidx = 0;
-  static int max_buflen;
-  static int sysex_id = -1;
-  static unsigned char *input_buf = NULL;
-  int copy_len;
-  unsigned char *data = (unsigned char *)ev->data.ext.ptr;
-
-#ifdef DEBUG
-  {
-    int i;
-    for (i = 0; i < ev->data.ext.len; i++)
-      dbgprintf("%d ", data[i]);
-     printf("\n");
-  }
-#endif
-
-  if (data[0] == SYSEX) { /* start of dump */
-    dstidx = 0;
-    sysex_id = data[1];
-    max_buflen = sysex_receivers[sysex_id].max_buflen;
-    input_buf = malloc(max_buflen);
-  }
-  if (sysex_id < 0) /* Just to be safe: exit if not reading sysex */
-    return;
-
-  copy_len = ev->data.ext.len;
-  /* Cap received data length at max_buflen to avoid overrunning buffer */
-  if (dstidx + copy_len > max_buflen)
-    copy_len -= dstidx + copy_len - max_buflen;
-  memcpy(&input_buf[dstidx], data, copy_len);
-  dstidx += copy_len;
-
-  /* When EOX received, handle to appropriate receiver */
-  if (data[ev->data.ext.len - 1] == EOX) {
-    if (sysex_receivers[sysex_id].sysex_receiver)
-      sysex_receivers[sysex_id].sysex_receiver(input_buf, dstidx);
-    sysex_id = -1;
-  }
-}
-
 /* Handle MIDI input. To be called when poll() call in main loop indicates
  * that data is available on our fd(s). */
 void
@@ -245,30 +172,14 @@ midi_input(void)
     evlen = snd_seq_event_length(ev);
     dbgprintf("MIDI event length %d\n", evlen);
     switch (ev->type) {
-      case SND_SEQ_EVENT_SYSEX:
-        dbgprintf("Sysex: length %d\n", ev->data.ext.len);
-        sysex_in(ev);
-        break;
-      /* Example of ordinary MIDI event. We don't use this. */
       case SND_SEQ_EVENT_CONTROLLER:
         dbgprintf("CC: ch %d, param %d, val %d\n", ev->data.control.channel + 1,
                 ev->data.control.param, ev->data.control.value);
+        /* Do something useful here */
         break;
       default:
         break;
     }
-  }
-}
-
-
-/* Register sysex handler with MIDI sysex subsystem, for handling received
- * sysex messages. */
-void
-midi_register_sysex(int sysex_id, midi_sysex_receiver receiver, int max_len)
-{
-  if (sysex_id < MAX_SYSEX_IDS) {
-    sysex_receivers[sysex_id].sysex_receiver = receiver;
-    sysex_receivers[sysex_id].max_buflen = max_len;
   }
 }
 
