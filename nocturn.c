@@ -199,7 +199,7 @@ int send_hexdata(libusb_device_handle *devh, uint8_t endpoint,
 /* Try to connect to Nocturn. 
  * Return 0 if ok, with usb_info filled in.
  * Return LIBUSB_ERROR_foo if failure. */
-int usb_connect(struct usb_info *usb_info)
+int usb_connect(libusb_context *ctx, struct usb_info *usb_info)
 {
   int stat;
   struct libusb_device *dev;
@@ -208,7 +208,7 @@ int usb_connect(struct usb_info *usb_info)
   uint8_t ep0, ep1;
   uint8_t rx_ep = -1, tx_ep = -1;
 
-  devh = libusb_open_device_with_vid_pid(NULL, vid_novation, pid_nocturn);
+  devh = libusb_open_device_with_vid_pid(ctx, vid_novation, pid_nocturn);
   if (!devh) {
     printf("Couldn't find Nocturn at %04x:%04x\n", vid_novation, pid_nocturn);
     return LIBUSB_ERROR_NO_DEVICE;
@@ -550,7 +550,7 @@ exit_ml:
 int main(int argc, char **argv)
 {
   int stat = 0;
-  libusb_context *ctx;
+  libusb_context *ctx = NULL;
   struct usb_info usb_info = { NULL, -1, -1 };
   struct polls *midipolls;
 
@@ -573,7 +573,7 @@ int main(int argc, char **argv)
     }
 
     /* Attempt to connect to Nocturn */
-    stat = usb_connect(&usb_info);
+    stat = usb_connect(ctx, &usb_info);
     if (stat < 0) {
       printf("Couldn't connect to Nocturn: %d\n", stat);
       continue;
