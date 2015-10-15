@@ -2,7 +2,8 @@ nocturn
 =======
 
 This is an attempt att providing an application to enable usage of the
-Novation Nocturn controller in a Linux environment.
+Novation Nocturn controller in a Linux environment. See the bottom of this
+page for support directly via ALSA in the Linux kernel.
 
 It is, and will be for some time, work in progress, but the hopes are that
 someone might find this useful.
@@ -26,3 +27,20 @@ like that has been implemented yet.
 
 Currently, only output from the Nocturn is supported. (However, as a test/demo,
 the daemon lights up a couple of the LED rings on the Nocturn when it starts).
+
+NOTE: The Linux kernel actually has support for Novation MIDI devices, although
+at the time of writing not specifically for the Nocturn. This can be done
+by adding the following to the Linux kernel's sound/usb/quirks-table.h
+
+	{
+		USB_DEVICE(0x1235, 0x000a),
+		.driver_info = (unsigned long) & (const struct snd_usb_audio_quirk) {
+			/* .vendor_name = "Novation", */
+			/* .product_name = "Nocturn", */
+			.ifnum = 0,
+			.type = QUIRK_MIDI_RAW_BYTES
+		}
+	},
+
+This has been has been tested on Linux 3.16, together with the xtor
+Blofeld editor.
